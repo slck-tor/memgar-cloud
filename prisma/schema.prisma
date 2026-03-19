@@ -1,0 +1,245 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      Plan     @default(FREE)
+  
+  stripeCustomerId       String?  @unique
+  stripeSubscriptionId   String?  @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  
+  agentLimit   Int @default(1)
+  scanLimit    Int @default(1000)
+  scansUsed    Int @default(0)
+  
+  members      Member[]
+  agents       Agent[]
+  apiKeys      ApiKey[]
+  alerts       Alert[]
+  webhooks     Webhook[]
+  memoryEvents MemoryEvent[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+model Member {
+  id     String @id @default(cuid())
+  role   Role   @default(MEMBER)
+  userId String
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, organizationId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  key         String   @unique
+  keyHash     String   @unique
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  createdAt DateTime @default(now())
+  
+  @@index([keyHash])
+}
+
+model Agent {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  type        AgentType @default(CUSTOM)
+  mode        AgentMode @default(MONITOR)
+  status      AgentStatus @default(ACTIVE)
+  
+  totalScans    Int @default(0)
+  threatsFound  Int @default(0)
+  lastSeenAt    DateTime?
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  memoryEvents MemoryEvent[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([organizationId])
+}
+
+enum AgentType {
+  CLAUDE
+  GPT
+  LANGCHAIN
+  LLAMAINDEX
+  MCP
+  CUSTOM
+}
+
+enum AgentMode {
+  MONITOR
+  PROTECT
+  AUDIT
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model MemoryEvent {
+  id             String   @id @default(cuid())
+  
+  contentHash    String
+  contentPreview String?
+  contentLength  Int
+  
+  sourceType     String
+  sourceId       String?
+  
+  decision       Decision
+  riskScore      Int
+  threatType     String?
+  threatName     String?
+  explanation    String?
+  
+  analysisLayers String[]
+  analysisTimeMs Int?
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+  
+  alert   Alert?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([organizationId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([decision])
+  @@index([threatType])
+}
+
+enum Decision {
+  ALLOW
+  BLOCK
+  QUARANTINE
+}
+
+model Alert {
+  id       String      @id @default(cuid())
+  severity Severity
+  status   AlertStatus @default(OPEN)
+  
+  title       String
+  description String?
+  
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  resolution  String?
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  memoryEvent   MemoryEvent @relation(fields: [memoryEventId], references: [id], onDelete: Cascade)
+  memoryEventId String      @unique
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([organizationId, status])
+  @@index([severity])
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+model Webhook {
+  id       String        @id @default(cuid())
+  name     String
+  url      String
+  type     WebhookType
+  events   String[]
+  secret   String
+  enabled  Boolean       @default(true)
+  
+  lastTriggeredAt DateTime?
+  failureCount    Int       @default(0)
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum WebhookType {
+  SLACK
+  DISCORD
+  PAGERDUTY
+  EMAIL
+  CUSTOM
+}
+
+model ThreatPattern {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String
+  category    String
+  severity    Severity
+  
+  patterns    String[]
+  keywords    String[]
+  
+  totalMatches Int @default(0)
+  
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
